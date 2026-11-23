@@ -20,10 +20,10 @@ single-purpose functions and files, clear names, no dead code, no over-engineeri
 
 | Command | What it does |
 |---|---|
-| `docker compose up -d` | Start Postgres |
+| `docker compose up -d` | Start Postgres (host port **5433**; a local Postgres occupies 5432) |
 | `npm run dev` | Server (:4000) + web (:3000) concurrently |
-| `npm run db:migrate` | `prisma migrate dev` |
-| `npm run db:seed` | `prisma db seed` (`apps/server/prisma/seed.js`) |
+| `npm run db:migrate` | `prisma migrate dev` (new named migration: `cd apps/server && npx prisma migrate dev --name <name>`) |
+| `npm run db:seed` | Re-runnable. Users alice/bob/carol/dave@cic.test, password `Password123!` |
 | `npm test` | vitest (server) |
 | `npm run lint` | ESLint, all workspaces |
 
@@ -51,6 +51,53 @@ apps/server/src/
   realtime/              socketServer.js, socketAuth.js, events.js (event name constants),
                          presenceStore.js, handlers/messageHandlers.js, handlers/connectionHandlers.js
 ```
+
+## Data model conventions
+
+- UUID ids; snake_case tables/columns via `@@map`/`@map`; String fields instead of Prisma enums
+  (`Conversation.type`: `direct|group`; `ConversationMember.role`: `owner|member`).
+- Emails stored lowercase. `directKey` = the two user ids sorted and joined with `:`.
+
+## Docs (keep in sync with code)
+
+- `docs/ARCHITECTURE.md`: diagrams, ERD, REST API and socket event tables.
+- `docs/DECISIONS.md`: design decisions (Context / Decision / Trade-off).
+
+## Web app (apps/web/src)
+
+- `lib/` apiClient (fetch + `ApiError`), socketClient (singleton), events (must match server), queryKeys, chatCache (pure cache updaters), formatTime.
+- `providers/` Query → Auth (root layout); Socket → Presence (chat layout, behind the auth guard).
+- `hooks/` data hooks (conversations, messages, send, user search) + UI hooks (chat scroll, socket status).
+- `components/ui` (Button, Input, Dialog only — no UI library), `components/chat`, `components/auth`.
+- One accent colour: `accent` / `accent-hover` / `accent-soft` tokens in `globals.css`.
+
+## API contract (the web client depends on it)
+
+Errors: `{ error: { code, message } }`. Auth via httpOnly cookie on REST and the socket handshake.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| POST | `/auth/register` | `{ email, displayName, password }` | `{ user }` + cookie |
+| POST | `/auth/login` | `{ email, password }` | `{ user }` + cookie |
+| POST | `/auth/logout` | — | 204, clears cookie |
+| GET | `/auth/me` | — | `{ user }` or 401 |
+| GET | `/users` | `?search=` | `{ users: [User] }` (excludes current user) |
+| GET | `/conversations` | — | `{ conversations: [Conversation] }` (most recent first) |
+| POST | `/conversations/direct` | `{ userId }` | `{ conversation }` (existing or new) |
+| POST | `/conversations/group` | `{ name, memberIds }` | `{ conversation }` |
+| GET | `/conversations/:id/messages` | `?limit=&cursor=` | `{ messages: [Message] (oldest→newest), nextCursor \| null }` |
+| POST | `/conversations/:id/read` | — | 204 |
+
+- `User`: `{ id, email, displayName }`
+- `Conversation`: `{ id, type, name, lastMessageAt, unreadCount, lastMessage: Message | null, members: [{ id, displayName, email, role, isOnline, lastSeenAt }] }`
+- `Message`: `{ id, conversationId, senderId, body, clientMsgId, createdAt }`
+
+| Event | Direction | Payload |
+|---|---|---|
+| `message:send` | client → server, with ack | `{ conversationId, body, clientMsgId }` → ack `{ ok: true, message }` or `{ ok: false, error: { code, message } }` |
+| `message:new` | server → room `conv:{id}` (sender included) | `Message` |
+| `conversation:new` | server → each member's `user:{id}` room | `Conversation` |
+| `presence:update` | server → broadcast | `{ userId, isOnline, lastSeenAt }` |
 
 ## Rules
 
