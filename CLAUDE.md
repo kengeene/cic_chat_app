@@ -73,31 +73,17 @@ apps/server/src/
 
 ## API contract (the web client depends on it)
 
-Errors: `{ error: { code, message } }`. Auth via httpOnly cookie on REST and the socket handshake.
+The full contract lives in `docs/ARCHITECTURE.md` ("REST API" and "Socket events"); update it with any API change.
+Key points: REST under `/api`; messages page `{ items (newest first), nextCursor }`; event names in
+`CLIENT_EVENTS` / `SERVER_EVENTS` must be identical in `apps/server/src/realtime/events.js` and `apps/web/src/lib/events.js`.
 
-| Method | Path | Body / query | Response |
-|---|---|---|---|
-| POST | `/auth/register` | `{ email, displayName, password }` | `{ user }` + cookie |
-| POST | `/auth/login` | `{ email, password }` | `{ user }` + cookie |
-| POST | `/auth/logout` | — | 204, clears cookie |
-| GET | `/auth/me` | — | `{ user }` or 401 |
-| GET | `/users` | `?search=` | `{ users: [User] }` (excludes current user) |
-| GET | `/conversations` | — | `{ conversations: [Conversation] }` (most recent first) |
-| POST | `/conversations/direct` | `{ userId }` | `{ conversation }` (existing or new) |
-| POST | `/conversations/group` | `{ name, memberIds }` | `{ conversation }` |
-| GET | `/conversations/:id/messages` | `?limit=&cursor=` | `{ messages: [Message] (oldest→newest), nextCursor \| null }` |
-| POST | `/conversations/:id/read` | — | 204 |
+## Server wiring
 
-- `User`: `{ id, email, displayName }`
-- `Conversation`: `{ id, type, name, lastMessageAt, unreadCount, lastMessage: Message | null, members: [{ id, displayName, email, role, isOnline, lastSeenAt }] }`
-- `Message`: `{ id, conversationId, senderId, body, clientMsgId, createdAt }`
-
-| Event | Direction | Payload |
-|---|---|---|
-| `message:send` | client → server, with ack | `{ conversationId, body, clientMsgId }` → ack `{ ok: true, message }` or `{ ok: false, error: { code, message } }` |
-| `message:new` | server → room `conv:{id}` (sender included) | `Message` |
-| `conversation:new` | server → each member's `user:{id}` room | `Conversation` |
-| `presence:update` | server → broadcast | `{ userId, isOnline, lastSeenAt }` |
+- `services.js` builds every service with injected repositories, `presence`, and the `notifyConversationCreated`
+  hook from `realtime/conversationNotifier.js`. Services never import Prisma or Socket.IO.
+- `server.js`: create Socket.IO (unattached) → services → Express app → HTTP server → `attachSocketServer`.
+  Socket.IO must attach *after* the app so it intercepts `/socket.io/` before Express's 404 handler.
+- Socket handlers wrap work in `withAck` (validate with `parseOrThrow`, never throw).
 
 ## Rules
 

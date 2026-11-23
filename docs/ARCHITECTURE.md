@@ -147,8 +147,36 @@ sequenceDiagram
 
 ## REST API
 
-_To be filled in during the next phase._
+Base path `/api`. Auth is the `cic_session` httpOnly cookie (JWT `{ sub }`, 8h). Every input is validated with zod.
+Errors are always `{ error: { code, message } }`.
+
+| Method | Path | Auth | Input | Success | Errors |
+|---|---|---|---|---|---|
+| POST | `/auth/register` | — | `{ email, displayName, password (8–72) }` | 201 `{ user }` + cookie | 400, 409 `EMAIL_TAKEN` |
+| POST | `/auth/login` | — | `{ email, password }` · 5/min per IP | 200 `{ user }` + cookie | 400, 401 `INVALID_CREDENTIALS`, 429 |
+| POST | `/auth/logout` | — | — | 204, clears cookie | — |
+| GET | `/auth/me` | ✓ | — | `{ user }` | 401 |
+| GET | `/users` | ✓ | `?search=` | `{ users: [User + isOnline] }` (excludes self, max 50) | 401 |
+| GET | `/conversations` | ✓ | — | `{ conversations: [Conversation] }` by `lastMessageAt` desc | 401 |
+| POST | `/conversations/direct` | ✓ | `{ userId }` | 200 `{ conversation }` (find-or-create) | 400, 401 |
+| POST | `/conversations/group` | ✓ | `{ name, memberIds (≥2 others) }` | 201 `{ conversation }`; creator is `owner` | 400, 401 |
+| POST | `/conversations/:id/read` | member | — | 204 (sets `lastReadAt` = now) | 400, 401, 403 |
+| GET | `/conversations/:id/messages` | member | `?cursor=&limit=1–100 (30)` | `{ items: [Message] newest first, nextCursor \| null }` | 400 `INVALID_CURSOR`, 401, 403 |
+
+- `User`: `{ id, email, displayName, lastSeenAt }` (from `toPublicUser`, never `passwordHash`)
+- `Conversation`: `{ id, type, name, createdAt, lastMessageAt, lastMessage: Message | null, unreadCount, members: [User + { role, isOnline }] }`
+- `Message`: `{ id, conversationId, senderId, body, clientMsgId, createdAt }`
+- The cursor is opaque (base64url of the oldest item's `createdAt` + `id`). Pass `nextCursor` back to get older messages.
 
 ## Socket events
 
-_To be filled in during the next phase._
+The handshake is authenticated with the same cookie. On connect the socket joins `user:{id}` plus `conv:{id}` for each of the user's conversations.
+Client events use an ack: `{ ok: true, ... }` or `{ ok: false, error: { code, message } }`. Handlers never throw.
+
+| Event | Direction | Payload | Notes |
+|---|---|---|---|
+| `message:send` | client → server (ack) | `{ conversationId, body, clientMsgId }` | Member only; body trimmed 1–4000; 20 per 10s per user; idempotent per `clientMsgId`. Ack `{ ok, message }` |
+| `conversation:read` | client → server (ack) | `{ conversationId }` | Member only; same as `POST /read` |
+| `message:new` | server → `conv:{id}` (sender included) | `Message` | Clients dedupe by `id` / `clientMsgId` |
+| `conversation:new` | server → each member's `user:{id}` | `Conversation` | Members' live sockets are joined to `conv:{id}` first |
+| `presence:update` | server → everyone | `{ userId, isOnline, lastSeenAt }` | Sent on the first socket connecting / last socket disconnecting (multi-tab aware) |
