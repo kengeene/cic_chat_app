@@ -41,7 +41,7 @@ Short records: **Context / Decision / Trade-off.**
 ## 7. Cursor pagination instead of offset
 
 - **Context:** History grows while users scroll, and new messages arrive in real time.
-- **Decision:** Page backwards with a cursor (the oldest loaded message's `createdAt`/`id`) using the `(conversation_id, created_at)` index.
+- **Decision:** Page backwards with Prisma's built-in cursor (the oldest loaded message's `id`), ordered by `(created_at, id)` and served by the `(conversation_id, created_at)` index.
 - **Trade-off:** You can't jump to page N, but pages stay stable as new messages arrive (offset pagination would skip or repeat rows), and each page is a cheap index seek.
 
 ## 8. JavaScript instead of TypeScript
@@ -49,3 +49,15 @@ Short records: **Context / Decision / Trade-off.**
 - **Context:** A time-boxed interview prototype.
 - **Decision:** Plain JavaScript (ES modules) with zod validating every boundary (env, REST, sockets) and JSDoc where intent isn't obvious.
 - **Trade-off:** Faster to write, but there's no compile-time type checking. Runtime validation covers the riskiest place (untrusted input). TypeScript would be the first step towards production.
+
+## 9. No repository layer: Prisma is the data-access layer
+
+- **Context:** The first version wrapped almost every Prisma call in a one-line repository function and wired everything together through factories.
+- **Decision:** Services call `prisma` directly. Only genuinely complex queries (raw SQL for the latest message and unread counts) get their own helper. Side effects reach Socket.IO through an in-process `EventEmitter`, not injected callbacks.
+- **Trade-off:** Services are tied to Prisma, and tests mock the Prisma module instead of injecting fakes. In return there's about 150 fewer lines of pass-through code. Swapping the ORM is unlikely, and Prisma already provides the type-safe, mockable data API a repository would give us.
+
+## 10. Mantine instead of Tailwind and hand-built components
+
+- **Context:** The UI had hand-built buttons, inputs, dialogs, avatars, skeletons, a responsive sidebar and form state, plus Tailwind for styling.
+- **Decision:** Use Mantine for everything: components, `AppShell` (responsive layout), `@mantine/form`, `@mantine/notifications`. Remove Tailwind so there's one styling system. Use `react-virtuoso` for the message list, `ky` for HTTP and `dayjs` for dates.
+- **Trade-off:** A larger dependency and an opinionated look, in exchange for accessible, tested components (focus traps, ARIA, autosizing textareas) and far less custom code to explain and maintain.

@@ -3,54 +3,65 @@
 Enterprise web chat for employees: authentication, real-time 1:1 and group messaging,
 conversation + message history, online/offline presence, responsive UI.
 
-This is a timed interview prototype. Code quality is judged: clean code, SOLID, small
-single-purpose functions and files, clear names, no dead code, no over-engineering.
-**Build only what is asked.**
+This is a timed interview prototype. Code quality is judged: clean code, small single-purpose
+functions and files, clear names, no dead code, no over-engineering. **Build only what is asked.**
+Prefer a well-established library over hand-written code; every line should be explainable in a sentence.
 
 ## Stack (JavaScript only, no TypeScript)
 
 - npm workspaces monorepo: `apps/server`, `apps/web`. Node 20 (`.nvmrc`).
-- **apps/server**: ES modules, Express 5, Socket.IO, Prisma + PostgreSQL, zod, bcryptjs,
-  jsonwebtoken, cookie-parser, helmet, cors, express-rate-limit, pino, vitest.
-- **apps/web**: Next.js 15 (App Router, JavaScript, `src/`), Tailwind CSS 4,
-  @tanstack/react-query, socket.io-client.
-- `docker-compose.yml`: postgres:16-alpine only.
+- **apps/server**: ES modules, Express 5, Socket.IO, Prisma + PostgreSQL, zod, bcryptjs, jsonwebtoken,
+  cookie-parser + cookie, helmet, cors, express-rate-limit, rate-limiter-flexible, pino + pino-http, vitest.
+- **apps/web**: Next.js 15 (App Router, JavaScript, `src/`), Mantine 8 (core, hooks, form, notifications),
+  @tanstack/react-query, socket.io-client, ky, dayjs, react-virtuoso. **No Tailwind / custom CSS.**
+- `docker-compose.yml`: postgres:16-alpine, server and web (built from `apps/*/Dockerfile`).
 
 ## Commands (repo root)
 
 | Command | What it does |
 |---|---|
-| `docker compose up -d` | Start Postgres (host port **5433**; a local Postgres occupies 5432) |
-| `npm run dev` | Server (:4000) + web (:3000) concurrently |
+| `docker compose up -d --build` | Whole stack: Postgres (host **5433**), server (:4000), web (:3000) |
+| `docker compose exec server npx prisma db seed` | Seed the Docker stack |
+| `docker compose up -d postgres` | Postgres only, for local development |
+| `npm run dev` | Server (:4000) + web (:3000) with hot reload |
 | `npm run db:migrate` | `prisma migrate dev` (new named migration: `cd apps/server && npx prisma migrate dev --name <name>`) |
 | `npm run db:seed` | Re-runnable. Users alice/bob/carol/dave@cic.test, password `Password123!` |
 | `npm test` | vitest (server) |
 | `npm run lint` | ESLint, all workspaces |
 
-Env: copy `apps/server/.env.example` → `apps/server/.env` and `apps/web/.env.example` →
+Env for local dev: copy `apps/server/.env.example` → `apps/server/.env` and `apps/web/.env.example` →
 `apps/web/.env.local`. Never commit secrets.
 
 ## Server architecture
 
-Each layer only talks to the one directly below it:
-
 ```
-routes → middleware → controller → service → repository → Prisma/PostgreSQL
+routes → middleware → controller → service → Prisma/PostgreSQL
 socket event → socket middleware → socket handler → service (same services as REST)
 ```
 
+There is no repository layer: Prisma is the data-access layer. Services call `prisma` directly; a query
+gets its own helper only when it is genuinely complex (`conversations.queries.js`, raw SQL).
+
 ```
 apps/server/src/
-  app.js                 builds the Express app (no listen)
-  server.js              HTTP server, attaches Socket.IO, listens, graceful shutdown
+  app.js                 the Express app (no listen)
+  server.js              HTTP server + Socket.IO, listen, graceful shutdown
+  routes.js              mounts feature routers under /api
   config/env.js          validates process.env with zod, fails fast
-  lib/                   prisma.js, logger.js, AppError.js, jwt.js
-  middleware/            authenticate.js, validate.js, errorHandler.js, rateLimiters.js
-  modules/<feature>/     <feature>.routes.js, .controller.js, .service.js, .repository.js, .schemas.js
-                         features: auth, users, conversations, messages
-  realtime/              socketServer.js, socketAuth.js, events.js (event name constants),
-                         presenceStore.js, handlers/messageHandlers.js, handlers/connectionHandlers.js
+  lib/                   prisma (+ passwordHash omitted globally), logger, AppError, jwt, sessionCookie,
+                         validation (parseOrThrow), presenceStore, domainEvents (EventEmitter)
+  middleware/            authenticate, validate, rateLimiters, requestLogger, errorHandler
+  modules/<feature>/     <feature>.routes.js, .controller.js, .service.js, .schemas.js (+ tests)
+                         features: auth, users, conversations (+ conversations.queries.js), messages
+  realtime/              socketServer.js (setup + domain event subscriptions), socketAuth.js, events.js, rooms.js,
+                         handlers/messageHandlers.js, handlers/connectionHandlers.js, handlers/withAck.js
 ```
+
+- Modules export plain named functions; routers are module-level `Router()`s. No factories.
+- Services never import Socket.IO. They emit on `domainEvents` (e.g. `CONVERSATION_CREATED`) and
+  `realtime/socketServer.js` subscribes (joins rooms, emits `conversation:new`).
+- Socket handlers wrap work in `withAck`: validate with `parseOrThrow`, always ack, never throw.
+- Tests mock the Prisma module (`vi.mock('../../lib/prisma.js')`).
 
 ## Data model conventions
 
@@ -58,38 +69,34 @@ apps/server/src/
   (`Conversation.type`: `direct|group`; `ConversationMember.role`: `owner|member`).
 - Emails stored lowercase. `directKey` = the two user ids sorted and joined with `:`.
 
+## Web app (apps/web/src)
+
+- `lib/` apiClient (ky instance), socketClient (singleton), events (must match server), queryKeys,
+  chatCache (pure cache updaters: messages, conversation previews, presence), formatTime (dayjs).
+- `providers/` AppProviders (Mantine, Notifications, React Query, Auth) in the root layout;
+  SocketProvider (connection + status) in the chat layout, behind the auth guard.
+- `hooks/` data hooks (conversations, messages, send, directory) + `useRealtimeCacheSync`.
+- `components/chat`, `components/auth`: Mantine components only. Layout uses `AppShell`.
+- Presence is two fields (`isOnline`, `lastSeenAt`) on conversation members in the React Query cache:
+  seeded by `GET /conversations`, patched by `presence:update`, refreshed on reconnect.
+- Theme: Mantine `primaryColor: 'indigo'`, neutral greys otherwise.
+
+## API contract
+
+The full contract lives in `docs/ARCHITECTURE.md` ("REST API" and "Socket events"); update it with any API change.
+Key points: REST under `/api`; messages page `{ items (newest first), nextCursor (message id) }`; event names in
+`CLIENT_EVENTS` / `SERVER_EVENTS` must be identical in `apps/server/src/realtime/events.js` and `apps/web/src/lib/events.js`.
+
 ## Docs (keep in sync with code)
 
 - `docs/ARCHITECTURE.md`: diagrams, ERD, REST API and socket event tables.
 - `docs/DECISIONS.md`: design decisions (Context / Decision / Trade-off).
-
-## Web app (apps/web/src)
-
-- `lib/` apiClient (fetch + `ApiError`), socketClient (singleton), events (must match server), queryKeys, chatCache (pure cache updaters), formatTime.
-- `providers/` Query → Auth (root layout); Socket → Presence (chat layout, behind the auth guard).
-- `hooks/` data hooks (conversations, messages, send, user search) + UI hooks (chat scroll, socket status).
-- `components/ui` (Button, Input, Dialog only — no UI library), `components/chat`, `components/auth`.
-- One accent colour: `accent` / `accent-hover` / `accent-soft` tokens in `globals.css`.
-
-## API contract (the web client depends on it)
-
-The full contract lives in `docs/ARCHITECTURE.md` ("REST API" and "Socket events"); update it with any API change.
-Key points: REST under `/api`; messages page `{ items (newest first), nextCursor }`; event names in
-`CLIENT_EVENTS` / `SERVER_EVENTS` must be identical in `apps/server/src/realtime/events.js` and `apps/web/src/lib/events.js`.
-
-## Server wiring
-
-- `services.js` builds every service with injected repositories, `presence`, and the `notifyConversationCreated`
-  hook from `realtime/conversationNotifier.js`. Services never import Prisma or Socket.IO.
-- `server.js`: create Socket.IO (unattached) → services → Express app → HTTP server → `attachSocketServer`.
-  Socket.IO must attach *after* the app so it intercepts `/socket.io/` before Express's 404 handler.
-- Socket handlers wrap work in `withAck` (validate with `parseOrThrow`, never throw).
+- `docs/PRODUCTION_READINESS.md`: implemented, known gaps, roadmap.
 
 ## Rules
 
-- Controllers are thin: read the request, call **one** service method, send the response.
-- Business rules and permission checks live in **services**.
-- Prisma is used **only** in repositories.
+- Controllers are thin: read the request, call **one** service function, send the response.
+- Business rules and permission checks (`assertMember`) live in **services**.
 - Validate every REST input and every socket payload with zod.
 - Errors: `throw new AppError(statusCode, code, message)`; `errorHandler` maps it to
   `{ error: { code, message } }`. Never leak stack traces.

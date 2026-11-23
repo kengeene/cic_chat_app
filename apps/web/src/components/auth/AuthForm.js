@@ -1,69 +1,74 @@
 'use client';
 
 import { useState } from 'react';
+import { Alert, Anchor, Button, PasswordInput, Stack, Text, TextInput, Title } from '@mantine/core';
+import { hasLength, isEmail, isNotEmpty, useForm } from '@mantine/form';
 import { useAuth } from '@/providers/AuthProvider';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
 
-const COPY = {
-  login: { title: 'Sign in', submit: 'Sign in', switchPrompt: 'New here?', switchAction: 'Create an account' },
-  register: { title: 'Create account', submit: 'Create account', switchPrompt: 'Already have an account?', switchAction: 'Sign in' },
+const MODES = {
+  login: {
+    title: 'Sign in',
+    switchPrompt: 'New here?',
+    switchAction: 'Create an account',
+    validate: { email: isEmail('Enter a valid email'), password: isNotEmpty('Enter your password') },
+  },
+  register: {
+    title: 'Create account',
+    switchPrompt: 'Already have an account?',
+    switchAction: 'Sign in',
+    validate: {
+      displayName: isNotEmpty('Enter your name'),
+      email: isEmail('Enter a valid email'),
+      password: hasLength({ min: 8 }, 'Use at least 8 characters'),
+    },
+  },
 };
 
-export function AuthForm() {
+/** Remount with `key={mode}` when switching modes so the form picks up that mode's rules. */
+export function AuthForm({ mode, onToggleMode }) {
   const { login, register } = useAuth();
-  const [mode, setMode] = useState('login');
   const [error, setError] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const isRegister = mode === 'register';
-  const copy = COPY[mode];
+  const config = MODES[mode];
+  const form = useForm({ initialValues: { displayName: '', email: '', password: '' }, validate: config.validate });
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    const fields = Object.fromEntries(new FormData(event.currentTarget));
+  const handleSubmit = async ({ displayName, email, password }) => {
     setError(null);
-    setIsSubmitting(true);
     try {
-      await (isRegister ? register(fields) : login(fields));
+      await (isRegister ? register({ displayName, email, password }) : login({ email, password }));
     } catch (submitError) {
       setError(submitError.message);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
-  const toggleMode = () => {
-    setError(null);
-    setMode(isRegister ? 'login' : 'register');
-  };
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <h1 className="text-xl font-semibold text-slate-900">{copy.title}</h1>
-      {isRegister && <Input label="Full name" name="displayName" autoComplete="name" required maxLength={80} />}
-      <Input label="Work email" name="email" type="email" autoComplete="email" required />
-      <Input
-        label="Password"
-        name="password"
-        type="password"
-        autoComplete={isRegister ? 'new-password' : 'current-password'}
-        minLength={isRegister ? 8 : undefined}
-        required
-      />
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
-      <Button type="submit" disabled={isSubmitting} className="w-full">
-        {isSubmitting ? 'Please wait…' : copy.submit}
-      </Button>
-      <p className="text-center text-sm text-slate-600">
-        {copy.switchPrompt}{' '}
-        <button type="button" onClick={toggleMode} className="font-medium text-accent hover:underline">
-          {copy.switchAction}
-        </button>
-      </p>
+    <form onSubmit={form.onSubmit(handleSubmit)}>
+      <Stack>
+        <Title order={1} size="h3">
+          {config.title}
+        </Title>
+        {isRegister && <TextInput label="Full name" autoComplete="name" maxLength={80} {...form.getInputProps('displayName')} />}
+        <TextInput label="Work email" type="email" autoComplete="email" {...form.getInputProps('email')} />
+        <PasswordInput
+          label="Password"
+          autoComplete={isRegister ? 'new-password' : 'current-password'}
+          {...form.getInputProps('password')}
+        />
+        {error && (
+          <Alert color="red" role="alert">
+            {error}
+          </Alert>
+        )}
+        <Button type="submit" loading={form.submitting} fullWidth>
+          {config.title}
+        </Button>
+        <Text size="sm" ta="center">
+          {config.switchPrompt}{' '}
+          <Anchor component="button" type="button" size="sm" onClick={onToggleMode}>
+            {config.switchAction}
+          </Anchor>
+        </Text>
+      </Stack>
     </form>
   );
 }

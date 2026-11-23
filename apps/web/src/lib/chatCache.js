@@ -70,3 +70,14 @@ export const clearUnread = (queryClient, conversationId) =>
       conversation.id === conversationId ? { ...conversation, unreadCount: 0 } : conversation,
     ),
   );
+
+/** Presence is just two fields on conversation members; socket events patch them in place. */
+export const applyPresenceUpdate = (queryClient, { userId, isOnline, lastSeenAt }) =>
+  queryClient.setQueryData(queryKeys.conversations, (conversations) =>
+    conversations?.map((conversation) => ({
+      ...conversation,
+      members: conversation.members.map((member) =>
+        member.id === userId ? { ...member, isOnline, lastSeenAt: lastSeenAt ?? member.lastSeenAt } : member,
+      ),
+    })),
+  );

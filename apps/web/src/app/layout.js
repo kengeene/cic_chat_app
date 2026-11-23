@@ -1,6 +1,7 @@
-import './globals.css';
-import { QueryProvider } from '@/providers/QueryProvider';
-import { AuthProvider } from '@/providers/AuthProvider';
+import '@mantine/core/styles.css';
+import '@mantine/notifications/styles.css';
+import { ColorSchemeScript, mantineHtmlProps } from '@mantine/core';
+import { AppProviders } from '@/providers/AppProviders';
 
 export const metadata = {
   title: 'CIC Chat',
@@ -9,11 +10,12 @@ export const metadata = {
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en">
-      <body className="bg-slate-100 text-slate-900 antialiased">
-        <QueryProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </QueryProvider>
+    <html lang="en" {...mantineHtmlProps}>
+      <head>
+        <ColorSchemeScript />
+      </head>
+      <body>
+        <AppProviders>{children}</AppProviders>
       </body>
     </html>
   );

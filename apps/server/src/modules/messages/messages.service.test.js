@@ -1,5 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createMessagesService } from './messages.service.js';
+import { prisma } from '../../lib/prisma.js';
+import { send } from './messages.service.js';
+
+vi.mock('../../lib/prisma.js', () => {
+  const prisma = {
+    conversationMember: { findUnique: vi.fn() },
+    message: { findUnique: vi.fn(), create: vi.fn() },
+    conversation: { update: vi.fn() },
+    $transaction: vi.fn((work) => work(prisma)),
+  };
+  return { prisma, isUniqueViolation: (error) => error?.code === 'P2002' };
+});
 
 const CONVERSATION_ID = '11111111-1111-4111-8111-111111111111';
 const SENDER_ID = '22222222-2222-4222-8222-222222222222';
@@ -17,60 +28,47 @@ const storedMessage = {
 const sendInput = { conversationId: CONVERSATION_ID, senderId: SENDER_ID, body: '  Hello  ', clientMsgId: CLIENT_MSG_ID };
 
 describe('messagesService.send', () => {
-  let messagesRepository;
-  let conversationsRepository;
-  let messagesService;
-
   beforeEach(() => {
-    messagesRepository = {
-      findBySenderAndClientMsgId: vi.fn().mockResolvedValue(null),
-      create: vi.fn().mockResolvedValue(storedMessage),
-    };
-    conversationsRepository = {
-      findMembership: vi.fn().mockResolvedValue({ conversationId: CONVERSATION_ID, userId: SENDER_ID }),
-    };
-    messagesService = createMessagesService({ messagesRepository, conversationsRepository });
+    vi.clearAllMocks();
+    prisma.conversationMember.findUnique.mockResolvedValue({ conversationId: CONVERSATION_ID, userId: SENDER_ID });
+    prisma.message.findUnique.mockResolvedValue(null);
+    prisma.message.create.mockResolvedValue(storedMessage);
   });
 
   it('rejects senders who are not members of the conversation', async () => {
-    conversationsRepository.findMembership.mockResolvedValue(null);
+    prisma.conversationMember.findUnique.mockResolvedValue(null);
 
-    await expect(messagesService.send(sendInput)).rejects.toMatchObject({ statusCode: 403, code: 'NOT_A_MEMBER' });
-    expect(messagesRepository.create).not.toHaveBeenCalled();
+    await expect(send(sendInput)).rejects.toMatchObject({ statusCode: 403, code: 'NOT_A_MEMBER' });
+    expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
-  it('stores a new message with a trimmed body', async () => {
-    const message = await messagesService.send(sendInput);
+  it('stores a new message with a trimmed body and bumps lastMessageAt', async () => {
+    await expect(send(sendInput)).resolves.toBe(storedMessage);
 
-    expect(message).toBe(storedMessage);
-    expect(messagesRepository.create).toHaveBeenCalledWith({
-      conversationId: CONVERSATION_ID,
-      senderId: SENDER_ID,
-      body: 'Hello',
-      clientMsgId: CLIENT_MSG_ID,
+    expect(prisma.message.create).toHaveBeenCalledWith({
+      data: { conversationId: CONVERSATION_ID, senderId: SENDER_ID, body: 'Hello', clientMsgId: CLIENT_MSG_ID },
+    });
+    expect(prisma.conversation.update).toHaveBeenCalledWith({
+      where: { id: CONVERSATION_ID },
+      data: { lastMessageAt: storedMessage.createdAt },
     });
   });
 
   it('is idempotent: a retry with the same clientMsgId returns the stored message without creating another', async () => {
-    messagesRepository.findBySenderAndClientMsgId.mockResolvedValue(storedMessage);
+    prisma.message.findUnique.mockResolvedValue(storedMessage);
 
-    const message = await messagesService.send(sendInput);
-
-    expect(message).toBe(storedMessage);
-    expect(messagesRepository.create).not.toHaveBeenCalled();
+    await expect(send(sendInput)).resolves.toBe(storedMessage);
+    expect(prisma.message.create).not.toHaveBeenCalled();
   });
 
   it('returns the stored message when a concurrent retry wins the unique constraint race', async () => {
-    messagesRepository.create.mockResolvedValue(null);
-    messagesRepository.findBySenderAndClientMsgId.mockResolvedValueOnce(null).mockResolvedValueOnce(storedMessage);
+    prisma.message.create.mockRejectedValue({ code: 'P2002' });
+    prisma.message.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(storedMessage);
 
-    await expect(messagesService.send(sendInput)).resolves.toBe(storedMessage);
+    await expect(send(sendInput)).resolves.toBe(storedMessage);
   });
 
   it('rejects an empty body after trimming', async () => {
-    await expect(messagesService.send({ ...sendInput, body: '   ' })).rejects.toMatchObject({
-      statusCode: 400,
-      code: 'INVALID_MESSAGE_BODY',
-    });
+    await expect(send({ ...sendInput, body: '   ' })).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_MESSAGE_BODY' });
   });
 });

@@ -1,13 +1,22 @@
-import { toPublicUser } from './users.mapper.js';
+import { prisma } from '../../lib/prisma.js';
+import { presenceStore } from '../../lib/presenceStore.js';
 
 const DIRECTORY_PAGE_SIZE = 50;
 
-/** @param {{ usersRepository: object, presence: { isOnline(userId: string): boolean } }} deps */
-export const createUsersService = ({ usersRepository, presence }) => ({
-  async searchDirectory(currentUserId, search) {
-    const users = await usersRepository.search({ search, excludeUserId: currentUserId, limit: DIRECTORY_PAGE_SIZE });
-    return users.map((user) => ({ ...toPublicUser(user), isOnline: presence.isOnline(user.id) }));
-  },
-
-  markLastSeen: (userId, lastSeenAt) => usersRepository.updateLastSeenAt(userId, lastSeenAt),
+const matchesSearch = (search) => ({
+  OR: [
+    { displayName: { contains: search, mode: 'insensitive' } },
+    { email: { contains: search, mode: 'insensitive' } },
+  ],
 });
+
+export const searchDirectory = async (currentUserId, search) => {
+  const users = await prisma.user.findMany({
+    where: { id: { not: currentUserId }, ...(search && matchesSearch(search)) },
+    orderBy: { displayName: 'asc' },
+    take: DIRECTORY_PAGE_SIZE,
+  });
+  return users.map((user) => ({ ...user, isOnline: presenceStore.isOnline(user.id) }));
+};
+
+export const markLastSeen = (userId, lastSeenAt) => prisma.user.update({ where: { id: userId }, data: { lastSeenAt } });

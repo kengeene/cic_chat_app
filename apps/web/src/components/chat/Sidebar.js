@@ -1,34 +1,34 @@
-import { useState } from 'react';
+import { Avatar, Button, Divider, Group, ScrollArea, Stack, Text } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import { useAuth } from '@/providers/AuthProvider';
-import { Button } from '@/components/ui/Button';
-import { Avatar } from './Avatar';
 import { ConversationList } from './ConversationList';
-import { NewChatDialog } from './NewChatDialog';
+import { NewChatModal } from './NewChatModal';
 
 export function Sidebar() {
   const { user, logout } = useAuth();
-  const [isNewChatOpen, setIsNewChatOpen] = useState(false);
+  const [isNewChatOpen, newChat] = useDisclosure(false);
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-slate-200 bg-slate-50">
-      <header className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Avatar name={user.displayName} size="sm" />
-          <span className="truncate text-sm font-semibold text-slate-900">{user.displayName}</span>
-        </div>
-        <Button variant="ghost" onClick={logout}>
+    <Stack h="100%" gap={0}>
+      <Group justify="space-between" wrap="nowrap" px="md" py="sm">
+        <Group gap="xs" wrap="nowrap" miw={0}>
+          <Avatar name={user.displayName} color="gray" size="sm" />
+          <Text size="sm" fw={600} truncate>
+            {user.displayName}
+          </Text>
+        </Group>
+        <Button variant="subtle" color="gray" size="xs" onClick={logout}>
           Sign out
         </Button>
-      </header>
-      <div className="p-3">
-        <Button className="w-full" onClick={() => setIsNewChatOpen(true)}>
-          New chat
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
+      </Group>
+      <Divider />
+      <Button m="sm" onClick={newChat.open}>
+        New chat
+      </Button>
+      <ScrollArea flex={1} px="xs">
         <ConversationList />
-      </div>
-      {isNewChatOpen && <NewChatDialog onClose={() => setIsNewChatOpen(false)} />}
-    </aside>
+      </ScrollArea>
+      <NewChatModal opened={isNewChatOpen} onClose={newChat.close} />
+    </Stack>
   );
 }

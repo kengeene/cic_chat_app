@@ -2,17 +2,17 @@
 
 import { createContext, useContext, useMemo } from 'react';
 import { hashKey, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, ApiError } from '@/lib/apiClient';
+import { isHTTPError } from 'ky';
+import { api } from '@/lib/apiClient';
 import { queryKeys } from '@/lib/queryKeys';
 
 const AuthContext = createContext(null);
 
 const fetchCurrentUser = async () => {
   try {
-    const { user } = await apiClient.get('/auth/me');
-    return user;
+    return (await api.get('auth/me').json()).user;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 401) return null;
+    if (isHTTPError(error) && error.response.status === 401) return null;
     throw error;
   }
 };
@@ -23,11 +23,7 @@ const clearAccountData = (queryClient) =>
 
 export function AuthProvider({ children }) {
   const queryClient = useQueryClient();
-  const { data: user, isPending } = useQuery({
-    queryKey: queryKeys.me,
-    queryFn: fetchCurrentUser,
-    retry: false,
-  });
+  const { data: user, isPending } = useQuery({ queryKey: queryKeys.me, queryFn: fetchCurrentUser, retry: false });
 
   const value = useMemo(() => {
     const setUser = (nextUser) => {
@@ -38,10 +34,10 @@ export function AuthProvider({ children }) {
     return {
       user: user ?? null,
       isLoading: isPending,
-      login: async (credentials) => setUser((await apiClient.post('/auth/login', credentials)).user),
-      register: async (details) => setUser((await apiClient.post('/auth/register', details)).user),
+      login: async (credentials) => setUser((await api.post('auth/login', { json: credentials }).json()).user),
+      register: async (details) => setUser((await api.post('auth/register', { json: details }).json()).user),
       logout: async () => {
-        await apiClient.post('/auth/logout');
+        await api.post('auth/logout');
         setUser(null);
       },
     };

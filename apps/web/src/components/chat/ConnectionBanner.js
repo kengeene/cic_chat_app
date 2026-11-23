@@ -1,3 +1,4 @@
+import { Alert } from '@mantine/core';
 import { useSocket } from '@/providers/SocketProvider';
 
 const STATUS_MESSAGES = {
@@ -12,7 +13,9 @@ export function ConnectionBanner() {
   return (
     <div role="status">
       {message && (
-        <p className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">{message}</p>
+        <Alert color="yellow" radius={0} pos="fixed" top={0} left={0} right={0} ta="center" style={{ zIndex: 300 }}>
+          {message}
+        </Alert>
       )}
     </div>
   );

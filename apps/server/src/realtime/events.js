@@ -1,7 +1,6 @@
 // Must match apps/web/src/lib/events.js.
 export const CLIENT_EVENTS = Object.freeze({
   MESSAGE_SEND: 'message:send',
-  CONVERSATION_READ: 'conversation:read',
 });
 
 export const SERVER_EVENTS = Object.freeze({

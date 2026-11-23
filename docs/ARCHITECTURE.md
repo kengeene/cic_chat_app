@@ -34,15 +34,18 @@ flowchart TB
   S["Socket event"] --> SMW["Socket middleware<br/>JWT on handshake"] --> SH["Socket handlers<br/>Ack, emit to rooms"]
   C --> SV["Services<br/>Business rules, membership checks"]
   SH --> SV
-  SV --> R["Repositories<br/>Database queries via Prisma"] --> PG[("PostgreSQL")]
+  SV --> P["Prisma<br/>Data access (raw SQL only for aggregates)"] --> PG[("PostgreSQL")]
+  SV -. "domain events" .-> SH
 ```
 
 | Layer | Responsibility | Must not |
 |---|---|---|
 | Routes / middleware | Wire endpoints, authenticate, validate input (zod) | Contain business logic |
-| Controllers / socket handlers | Read input, call one service method, reply | Touch Prisma |
-| Services | Business rules, permission checks, throw `AppError` | Know about HTTP or sockets |
-| Repositories | Prisma queries | Make decisions |
+| Controllers / socket handlers | Read input, call one service function, reply | Touch Prisma |
+| Services | Business rules, permission checks, Prisma queries, throw `AppError` | Know about HTTP or Socket.IO |
+| Prisma | Data access: there is no separate repository layer | — |
+
+Services announce side effects (e.g. "conversation created") on an in-process `EventEmitter`; the realtime layer subscribes and pushes to sockets.
 
 ## Data model
 
@@ -100,17 +103,17 @@ sequenceDiagram
   participant C as Client
   participant H as messageHandlers
   participant S as messagesService
-  participant R as messagesRepository
+  participant DB as Prisma / PostgreSQL
   participant Room as Room conv:{id}
 
   C->>C: Show message as "sending" (clientMsgId = uuid)
-  C->>H: emit message:send {conversationId, body, clientMsgId} + ack
-  H->>H: Validate payload (zod)
-  H->>S: sendMessage(userId, payload)
-  S->>S: Check sender is a member
-  S->>R: Save message (idempotent on senderId + clientMsgId)
-  R->>R: Update conversation.lastMessageAt
-  R-->>S: message
+  C->>H: emitWithAck message:send {conversationId, body, clientMsgId} (5s timeout)
+  H->>H: Validate payload (zod), rate limit (20 / 10s)
+  H->>S: send({ ...payload, senderId })
+  S->>DB: Check sender is a member
+  S->>DB: Return existing message if (senderId, clientMsgId) already stored
+  S->>DB: Transaction: insert message + update conversation.lastMessageAt
+  DB-->>S: message
   S-->>H: message
   H->>Room: emit message:new
   H-->>C: ack {ok: true, message}
@@ -161,12 +164,12 @@ Errors are always `{ error: { code, message } }`.
 | POST | `/conversations/direct` | ✓ | `{ userId }` | 200 `{ conversation }` (find-or-create) | 400, 401 |
 | POST | `/conversations/group` | ✓ | `{ name, memberIds (≥2 others) }` | 201 `{ conversation }`; creator is `owner` | 400, 401 |
 | POST | `/conversations/:id/read` | member | — | 204 (sets `lastReadAt` = now) | 400, 401, 403 |
-| GET | `/conversations/:id/messages` | member | `?cursor=&limit=1–100 (30)` | `{ items: [Message] newest first, nextCursor \| null }` | 400 `INVALID_CURSOR`, 401, 403 |
+| GET | `/conversations/:id/messages` | member | `?cursor=<message id>&limit=1–100 (30)` | `{ items: [Message] newest first, nextCursor \| null }` | 400, 401, 403 |
 
 - `User`: `{ id, email, displayName, lastSeenAt }` (from `toPublicUser`, never `passwordHash`)
 - `Conversation`: `{ id, type, name, createdAt, lastMessageAt, lastMessage: Message | null, unreadCount, members: [User + { role, isOnline }] }`
 - `Message`: `{ id, conversationId, senderId, body, clientMsgId, createdAt }`
-- The cursor is opaque (base64url of the oldest item's `createdAt` + `id`). Pass `nextCursor` back to get older messages.
+- The cursor is the id of the oldest message already loaded (Prisma `cursor` + `skip: 1`, ordered by `createdAt`, `id`). Pass `nextCursor` back to get older messages; it is `null` once a page comes back short.
 
 ## Socket events
 
@@ -176,7 +179,6 @@ Client events use an ack: `{ ok: true, ... }` or `{ ok: false, error: { code, me
 | Event | Direction | Payload | Notes |
 |---|---|---|---|
 | `message:send` | client → server (ack) | `{ conversationId, body, clientMsgId }` | Member only; body trimmed 1–4000; 20 per 10s per user; idempotent per `clientMsgId`. Ack `{ ok, message }` |
-| `conversation:read` | client → server (ack) | `{ conversationId }` | Member only; same as `POST /read` |
 | `message:new` | server → `conv:{id}` (sender included) | `Message` | Clients dedupe by `id` / `clientMsgId` |
 | `conversation:new` | server → each member's `user:{id}` | `Conversation` | Members' live sockets are joined to `conv:{id}` first |
 | `presence:update` | server → everyone | `{ userId, isOnline, lastSeenAt }` | Sent on the first socket connecting / last socket disconnecting (multi-tab aware) |

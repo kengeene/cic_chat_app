@@ -7,15 +7,6 @@ import { useSocket } from '@/providers/SocketProvider';
 
 const ACK_TIMEOUT_MS = 5000;
 
-const emitSend = (socket, payload) =>
-  new Promise((resolve, reject) => {
-    socket.timeout(ACK_TIMEOUT_MS).emit(CLIENT_EVENTS.MESSAGE_SEND, payload, (timeoutError, response) => {
-      if (timeoutError) return reject(timeoutError);
-      if (!response?.ok) return reject(new Error(response?.error?.message ?? 'Message rejected'));
-      return resolve(response.message);
-    });
-  });
-
 /** Optimistic send: the message shows as "sending" until the server acks it, or "failed" with a retry. */
 export const useSendMessage = (conversationId) => {
   const queryClient = useQueryClient();
@@ -25,11 +16,14 @@ export const useSendMessage = (conversationId) => {
   const deliver = useCallback(
     async ({ clientMsgId, body }) => {
       try {
-        const message = await emitSend(socket, { conversationId, clientMsgId, body });
-        applyIncomingMessage(queryClient, message, user.id);
+        const response = await socket
+          .timeout(ACK_TIMEOUT_MS)
+          .emitWithAck(CLIENT_EVENTS.MESSAGE_SEND, { conversationId, clientMsgId, body });
+        if (response.ok) return applyIncomingMessage(queryClient, response.message, user.id);
       } catch {
-        setPendingMessageStatus(queryClient, conversationId, clientMsgId, 'failed');
+        // No ack within the timeout; fall through to "failed".
       }
+      setPendingMessageStatus(queryClient, conversationId, clientMsgId, 'failed');
     },
     [socket, queryClient, conversationId, user.id],
   );

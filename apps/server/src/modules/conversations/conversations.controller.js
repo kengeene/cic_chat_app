@@ -1,20 +1,18 @@
-export const createConversationsController = (conversationsService) => ({
-  list: async (req, res) => {
-    res.json({ conversations: await conversationsService.listForUser(req.user.id) });
-  },
+import * as conversationsService from './conversations.service.js';
 
-  createDirect: async (req, res) => {
-    const conversation = await conversationsService.findOrCreateDirect(req.user.id, req.validated.body.userId);
-    res.json({ conversation });
-  },
+export const list = async (req, res) => {
+  res.json({ conversations: await conversationsService.listForUser(req.user.id) });
+};
 
-  createGroup: async (req, res) => {
-    const conversation = await conversationsService.createGroup(req.user.id, req.validated.body);
-    res.status(201).json({ conversation });
-  },
+export const createDirect = async (req, res) => {
+  res.json({ conversation: await conversationsService.findOrCreateDirect(req.user.id, req.validated.body.userId) });
+};
 
-  markRead: async (req, res) => {
-    await conversationsService.markRead(req.validated.params.id, req.user.id);
-    res.status(204).end();
-  },
-});
+export const createGroup = async (req, res) => {
+  res.status(201).json({ conversation: await conversationsService.createGroup(req.user.id, req.validated.body) });
+};
+
+export const markRead = async (req, res) => {
+  await conversationsService.markRead(req.validated.params.id, req.user.id);
+  res.status(204).end();
+};

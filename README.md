@@ -12,21 +12,32 @@ An enterprise web chat for employees. People sign in with a work account and mes
 | Database | PostgreSQL 16 + Prisma | Relational data with hard invariants (one DM per pair, idempotent sends); typed queries and migrations |
 | Validation | zod | One schema library for env, REST input and socket payloads |
 | Auth | JWT in an httpOnly cookie, bcryptjs | Same credential for REST and the socket handshake; not readable by injected scripts |
-| Hardening | helmet, cors, express-rate-limit | Secure headers, a single allowed origin, login brute-force protection |
+| Hardening | helmet, cors, express-rate-limit, rate-limiter-flexible | Secure headers, a single allowed origin, login and message rate limits (Redis-ready) |
 | Logging | pino + pino-http | Fast structured JSON logs with request ids; bodies and cookies never logged |
 | Web | Next.js 15 (App Router), React 19 | File-based routing and a production build pipeline out of the box |
-| Styling | Tailwind CSS 4 | Consistent, responsive UI without a component library |
-| Data fetching | TanStack Query | Caching, infinite pagination and optimistic updates; socket events write into the same cache |
+| UI | Mantine 8 (+ form, notifications) | Accessible components, a responsive `AppShell` and form handling, so no hand-built UI or CSS |
+| Data fetching | TanStack Query + ky | Caching, infinite pagination and optimistic updates (socket events write into the same cache); ky is a small fetch client |
+| Message list | react-virtuoso | Virtualised list that keeps its scroll position when older messages load and follows new ones |
+| Dates | dayjs | "Today", "Yesterday", "last seen 5 minutes ago" without date maths |
 | Tests | Vitest | Fast, native ES modules, no config |
 
-## Setup
+## Run everything with Docker (one command)
+
+```bash
+docker compose up -d --build                     # Postgres, server (:4000) and web (:3000)
+docker compose exec server npx prisma db seed    # demo data (first run, or to reset it)
+```
+
+Open http://localhost:3000. Migrations run automatically when the server container starts. Stop `npm run dev` first if it is running, because both use ports 3000 and 4000.
+
+## Local development (hot reload)
 
 Needs Node 20 (`nvm use`) and Docker.
 
 ```bash
 npm install
 cp apps/server/.env.example apps/server/.env && cp apps/web/.env.example apps/web/.env.local
-docker compose up -d                         # PostgreSQL on localhost:5433
+docker compose up -d postgres                # PostgreSQL only, on localhost:5433
 npm run db:migrate && npm run db:seed
 npm run dev                                  # web → http://localhost:3000, API → http://localhost:4000
 ```
@@ -70,22 +81,24 @@ The session is a cookie, so each user needs a separate browser profile: use a no
 │   │   ├── prisma/            schema, migrations, seed
 │   │   └── src/
 │   │       ├── config/        env validation (zod)
-│   │       ├── lib/           prisma, logger, AppError, jwt, session cookie, validation helpers
+│   │       ├── lib/           prisma, logger, AppError, jwt, session cookie, validation, presence store, domain events
 │   │       ├── middleware/    authenticate, validate, rate limiters, request logger, errors
-│   │       ├── modules/       auth, users, conversations, messages (routes → controller → service → repository)
-│   │       ├── realtime/      Socket.IO setup, auth, presence store, notifier, event handlers
-│   │       ├── services.js    composition root: wires repositories + realtime hooks into services
+│   │       ├── modules/       auth, users, conversations, messages (routes → controller → service → Prisma)
+│   │       ├── realtime/      Socket.IO setup, handshake auth, event names, rooms, event handlers
+│   │       ├── routes.js      mounts the feature routers under /api
 │   │       ├── app.js         Express app (no listen)
 │   │       └── server.js      HTTP + Socket.IO bootstrap, graceful shutdown
+│   │   └── Dockerfile
 │   └── web/
+│       ├── Dockerfile         Next.js standalone build
 │       └── src/
 │           ├── app/           routes: /login, /chat, /chat/[conversationId]
-│           ├── components/    ui (Button, Input, Dialog), chat, auth
-│           ├── hooks/         data hooks (conversations, messages, send) and UI hooks
-│           ├── providers/     Query, Auth, Socket, Presence contexts
-│           └── lib/           API client, socket client, event names, cache updaters, formatting
+│           ├── components/    chat and auth UI (Mantine)
+│           ├── hooks/         data hooks (conversations, messages, send, directory) and socket → cache sync
+│           ├── providers/     AppProviders (Mantine, React Query, Auth), Socket
+│           └── lib/           API client (ky), socket client, event names, cache updaters, dates (dayjs)
 ├── docs/                      architecture, decisions, production readiness
-├── docker-compose.yml         PostgreSQL 16
+├── docker-compose.yml         PostgreSQL 16, server, web
 └── CLAUDE.md                  conventions for contributors and AI assistants
 ```
 

@@ -12,24 +12,27 @@ This is a time-boxed prototype. This page sets out what is actually built, what 
 - Unread counts per conversation (from `last_read_at`), cleared when a chat is opened.
 - Online/offline presence that works with several tabs open (sockets counted per user), and "last seen".
 - Responsive UI: list and chat side by side on desktop, one at a time on mobile. Loading skeletons, empty states, inline errors with retry, a reconnecting banner.
-- Accessibility basics: labelled inputs, visible focus, `aria-live` message list, native `<dialog>`.
+- Accessibility basics from Mantine: labelled inputs, focus states, accessible modal; the message list is a `role="log"` live region.
+- Virtualised message list (react-virtuoso), so long histories stay fast.
 
 **Engineering**
-- Layered server: routes → middleware → controller → service → repository. REST and sockets share the same services.
-- Services receive their dependencies (repositories, presence, realtime notifier) as parameters, so they never import Prisma or Socket.IO.
+- Layered server: routes → middleware → controller → service → Prisma. REST and sockets share the same services. No repository layer (see [DECISIONS.md](./DECISIONS.md) #9).
+- Services never import Socket.IO; they emit domain events that the realtime layer turns into socket pushes.
+- Leans on established libraries instead of custom code: Mantine, ky, dayjs, react-virtuoso, rate-limiter-flexible, Prisma's cursor pagination and `omit`.
+- One-command local stack: `docker compose up -d --build` (Postgres, server, web).
 - Every input is validated with zod: env (the server won't start if it's invalid), REST bodies/params/queries, socket payloads.
 - Consistent errors: `AppError` → `{ error: { code, message } }`, with no stack traces in responses. Socket handlers always ack and never throw.
 - Membership checks on every conversation read and write.
 - Sends are idempotent on `(sender_id, client_msg_id)`, including when two identical requests race.
-- No N+1: the conversation list takes 4 queries in total however many chats there are; the latest message per chat uses `DISTINCT ON`.
+- No N+1: the conversation list takes a fixed handful of queries however many chats there are; the latest message per chat uses `DISTINCT ON`.
 - Security basics:
   - helmet headers, a single CORS origin with credentials, a 100kb JSON body limit
   - login rate limit of 5/min per IP; message rate limit of 20 per 10s per user
   - bcrypt password hashes; a dummy compare for unknown emails so login timing doesn't reveal which accounts exist
-  - `passwordHash` never leaves the server (`toPublicUser`)
+  - `passwordHash` never leaves the server: Prisma omits it from every query except login
 - Structured logs (pino) with request ids. Bodies, passwords and cookies are never logged, and redaction backs this up.
 - Graceful shutdown: Socket.IO, then HTTP, then Prisma, with a forced exit after 10s.
-- 9 unit tests on the services with the repositories mocked: membership, idempotency, find-or-create DM.
+- 8 unit tests on the services with Prisma mocked: membership, idempotency, find-or-create DM.
 
 ## 2. Known gaps
 
@@ -46,7 +49,7 @@ This is a time-boxed prototype. This page sets out what is actually built, what 
 | Privacy | Presence updates go to every connected user | Should be limited to people who share a conversation |
 | Rate limiting | The login limit is per IP | Users behind one corporate NAT share a single quota |
 | Offline UX | Unsent (failed) messages are held in memory only and disappear on reconnect or reload | The user has to retype them |
-| Testing | 9 unit tests on the services; no tests for controllers, repositories, sockets, or the web app | Regressions are likely as features grow |
+| Testing | 8 unit tests on the services; no tests for controllers, database queries, sockets, or the web app | Regressions are likely as features grow |
 | E2E | No end-to-end tests; the two-browser flow is checked by hand | — |
 | Types | JavaScript without types; zod covers runtime boundaries only | Refactors are riskier; contract drift between web and server is caught late |
 
@@ -61,7 +64,7 @@ This is a time-boxed prototype. This page sets out what is actually built, what 
 
 ### Scalability
 - Several stateless server nodes behind a load balancer with **sticky sessions** (needed by Socket.IO's polling transport).
-- **Socket.IO Redis adapter** for fan-out across nodes; **Redis-backed presence** and rate limiters, replacing the in-memory `presenceStore`, which has the same interface.
+- **Socket.IO Redis adapter** for fan-out across nodes; **Redis-backed presence** and rate limiters, replacing the in-memory `presenceStore` (same three-function interface) and swapping `RateLimiterMemory` for `RateLimiterRedis`.
 - **PgBouncer** for connection pooling; **read replicas** for history and search reads.
 - **Partition the `messages` table** by time (for example monthly) to keep indexes small and make retention cheap.
 - A **queue** (BullMQ to start, Kafka at scale) after each message is saved, for notifications, search indexing and audit events, so the send path stays fast.
@@ -100,7 +103,7 @@ This is a time-boxed prototype. This page sets out what is actually built, what 
 - **CI/CD**: lint, unit tests, build, then Docker images, with deploys to staging and production after a manual approval.
 - A **staging** environment that mirrors production, seeded with synthetic data.
 - **Playwright E2E** tests for sign-in, DM, group, presence, reconnect and retry, and the mobile layout.
-- Add tests for the repositories against a real Postgres (Testcontainers) and for the socket handlers.
+- Add tests for the service queries against a real Postgres (Testcontainers) and for the socket handlers.
 - **Migrate to TypeScript**, sharing the API and event types between web and server, generated from the zod schemas.
 
 ### Extensions

@@ -15,5 +15,34 @@ services:
       timeout: 5s
       retries: 10
 
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://chat:chat@postgres:5432/chat
+      # Local-only default; set JWT_SECRET in your shell or a root .env to override.
+      JWT_SECRET: ${JWT_SECRET:-local-docker-only-secret-0123456789abcdef}
+      CLIENT_ORIGIN: http://localhost:3000
+      PORT: 4000
+      # Served over plain http, so the session cookie must not be marked Secure.
+      NODE_ENV: development
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - server
+
 volumes:
   postgres-data:

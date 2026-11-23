@@ -1,27 +1,14 @@
 import { createServer } from 'node:http';
-import { createApp } from './app.js';
-import { createServices } from './services.js';
-import { attachSocketServer, createSocketServer, registerSocketHandlers } from './realtime/socketServer.js';
-import { createPresenceStore } from './realtime/presenceStore.js';
-import { createConversationNotifier } from './realtime/conversationNotifier.js';
+import { app } from './app.js';
+import { createSocketServer } from './realtime/socketServer.js';
 import { env } from './config/env.js';
 import { logger } from './lib/logger.js';
 import { prisma } from './lib/prisma.js';
 
 const SHUTDOWN_TIMEOUT_MS = 10_000;
 
-// Socket.IO is created first so services can be given a notifier bound to it,
-// and attached last so it intercepts /socket.io/ before Express sees the request.
-const io = createSocketServer();
-const presenceStore = createPresenceStore();
-const services = createServices({
-  presence: presenceStore,
-  notifyConversationCreated: createConversationNotifier(io),
-});
-
-const httpServer = createServer(createApp(services));
-attachSocketServer(io, httpServer);
-registerSocketHandlers(io, { ...services, presenceStore });
+const httpServer = createServer(app);
+const io = createSocketServer(httpServer);
 
 httpServer.listen(env.PORT, () => {
   logger.info(`Server listening on http://localhost:${env.PORT}`);

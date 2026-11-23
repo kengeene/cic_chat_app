@@ -16,5 +16,3 @@ export const createGroupRequest = {
 export const markReadRequest = {
   params: conversationIdParams,
 };
-
-export const conversationReadPayload = z.object({ conversationId: z.uuid() });

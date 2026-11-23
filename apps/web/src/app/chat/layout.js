@@ -2,16 +2,16 @@
 
 import { useEffect } from 'react';
 import { useRouter, useSelectedLayoutSegment } from 'next/navigation';
+import { AppShell, Center, Flex, Loader } from '@mantine/core';
 import { useAuth } from '@/providers/AuthProvider';
 import { SocketProvider } from '@/providers/SocketProvider';
-import { PresenceProvider } from '@/providers/PresenceProvider';
 import { ConnectionBanner } from '@/components/chat/ConnectionBanner';
 import { Sidebar } from '@/components/chat/Sidebar';
 
 export default function ChatLayout({ children }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
-  // On mobile only one pane is visible: the list, or the open conversation.
+  // On mobile only one pane shows: the list, or the open conversation.
   const isConversationOpen = useSelectedLayoutSegment() !== null;
 
   useEffect(() => {
@@ -19,24 +19,26 @@ export default function ChatLayout({ children }) {
   }, [isLoading, user, router]);
 
   if (!user) {
-    return <p className="flex h-dvh items-center justify-center text-sm text-slate-500">Loading…</p>;
+    return (
+      <Center h="100dvh">
+        <Loader />
+      </Center>
+    );
   }
 
   return (
     <SocketProvider>
-      <PresenceProvider>
-        <div className="flex h-dvh flex-col bg-white">
-          <ConnectionBanner />
-          <div className="flex min-h-0 flex-1">
-            <div className={`${isConversationOpen ? 'hidden' : 'flex'} w-full md:flex md:w-80 md:shrink-0`}>
-              <Sidebar />
-            </div>
-            <main className={`${isConversationOpen ? 'flex' : 'hidden'} min-w-0 flex-1 flex-col md:flex`}>
-              {children}
-            </main>
-          </div>
-        </div>
-      </PresenceProvider>
+      <ConnectionBanner />
+      <AppShell padding={0} navbar={{ width: 320, breakpoint: 'sm', collapsed: { mobile: isConversationOpen } }}>
+        <AppShell.Navbar>
+          <Sidebar />
+        </AppShell.Navbar>
+        <AppShell.Main h="100dvh">
+          <Flex direction="column" h="100%">
+            {children}
+          </Flex>
+        </AppShell.Main>
+      </AppShell>
     </SocketProvider>
   );
 }

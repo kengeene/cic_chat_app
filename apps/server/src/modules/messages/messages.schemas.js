@@ -4,7 +4,7 @@ import { conversationIdParams } from '../conversations/conversations.schemas.js'
 export const listMessagesRequest = {
   params: conversationIdParams,
   query: z.object({
-    cursor: z.string().max(200).optional(),
+    cursor: z.uuid().optional(),
     limit: z.coerce.number().int().min(1).max(100).default(30),
   }),
 };

@@ -1,7 +1,6 @@
-export const createMessagesController = (messagesService) => ({
-  list: async (req, res) => {
-    const { cursor, limit } = req.validated.query;
-    const page = await messagesService.listPage({ conversationId: req.validated.params.id, userId: req.user.id, cursor, limit });
-    res.json(page);
-  },
-});
+import * as messagesService from './messages.service.js';
+
+export const list = async (req, res) => {
+  const { cursor, limit } = req.validated.query;
+  res.json(await messagesService.listPage({ conversationId: req.validated.params.id, userId: req.user.id, cursor, limit }));
+};
