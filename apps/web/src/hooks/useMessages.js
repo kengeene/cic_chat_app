@@ -11,9 +11,9 @@ const fetchMessagesPage = (conversationId, cursor) => {
   return apiClient.get(`/conversations/${conversationId}/messages?${params}`);
 };
 
-/** Pages are fetched newest-first; `messages` is flattened oldest → newest for rendering. */
+/** Pages and their items are newest-first; `messages` is flattened oldest → newest for rendering. */
 export const useMessages = (conversationId) => {
-  const { data, isPending, isError, hasNextPage, isFetchingNextPage, fetchNextPage } = useInfiniteQuery({
+  const { data, isPending, isError, isFetchNextPageError, hasNextPage, isFetchingNextPage, fetchNextPage, refetch } = useInfiniteQuery({
     queryKey: queryKeys.messages(conversationId),
     queryFn: ({ pageParam }) => fetchMessagesPage(conversationId, pageParam),
     initialPageParam: null,
@@ -21,9 +21,18 @@ export const useMessages = (conversationId) => {
   });
 
   const messages = useMemo(
-    () => (data ? [...data.pages].reverse().flatMap((page) => page.messages) : []),
+    () => (data ? data.pages.flatMap((page) => page.items).reverse() : []),
     [data],
   );
 
-  return { messages, isPending, isError, hasOlder: hasNextPage, isLoadingOlder: isFetchingNextPage, loadOlder: fetchNextPage };
+  return {
+    messages,
+    isPending,
+    isError: isError && !isFetchNextPageError,
+    retry: refetch,
+    hasOlder: hasNextPage,
+    isLoadingOlder: isFetchingNextPage,
+    isLoadOlderError: isFetchNextPageError,
+    loadOlder: fetchNextPage,
+  };
 };

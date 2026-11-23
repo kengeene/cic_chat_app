@@ -1,7 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { EVENTS } from '@/lib/events';
+import { SERVER_EVENTS } from '@/lib/events';
 import { useConversations } from '@/hooks/useConversations';
 import { useSocket } from './SocketProvider';
 
@@ -26,10 +26,10 @@ export function PresenceProvider({ children }) {
     // After a reconnect the conversations refetch is the source of truth again.
     const handleConnect = () => setLiveUpdates({});
 
-    socket.on(EVENTS.PRESENCE_UPDATE, handlePresenceUpdate);
+    socket.on(SERVER_EVENTS.PRESENCE_UPDATE, handlePresenceUpdate);
     socket.on('connect', handleConnect);
     return () => {
-      socket.off(EVENTS.PRESENCE_UPDATE, handlePresenceUpdate);
+      socket.off(SERVER_EVENTS.PRESENCE_UPDATE, handlePresenceUpdate);
       socket.off('connect', handleConnect);
     };
   }, [socket]);

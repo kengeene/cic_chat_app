@@ -16,7 +16,7 @@ const toApiError = async (response) => {
 };
 
 const send = (method, path, body) =>
-  fetch(`${API_URL}${path}`, {
+  fetch(`${API_URL}/api${path}`, {
     method,
     credentials: 'include',
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },

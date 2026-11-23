@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { EVENTS } from '@/lib/events';
+import { CLIENT_EVENTS } from '@/lib/events';
 import { applyIncomingMessage, setPendingMessageStatus, upsertMessage } from '@/lib/chatCache';
 import { useAuth } from '@/providers/AuthProvider';
 import { useSocket } from '@/providers/SocketProvider';
@@ -9,7 +9,7 @@ const ACK_TIMEOUT_MS = 5000;
 
 const emitSend = (socket, payload) =>
   new Promise((resolve, reject) => {
-    socket.timeout(ACK_TIMEOUT_MS).emit(EVENTS.MESSAGE_SEND, payload, (timeoutError, response) => {
+    socket.timeout(ACK_TIMEOUT_MS).emit(CLIENT_EVENTS.MESSAGE_SEND, payload, (timeoutError, response) => {
       if (timeoutError) return reject(timeoutError);
       if (!response?.ok) return reject(new Error(response?.error?.message ?? 'Message rejected'));
       return resolve(response.message);

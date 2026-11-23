@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { EVENTS } from '@/lib/events';
+import { SERVER_EVENTS } from '@/lib/events';
 import { queryKeys } from '@/lib/queryKeys';
 import { applyIncomingMessage, upsertConversation } from '@/lib/chatCache';
 
@@ -23,12 +23,12 @@ export const useRealtimeCacheSync = (socket, currentUserId) => {
     const handleConversationNew = (conversation) => upsertConversation(queryClient, conversation);
 
     socket.on('connect', handleConnect);
-    socket.on(EVENTS.MESSAGE_NEW, handleMessageNew);
-    socket.on(EVENTS.CONVERSATION_NEW, handleConversationNew);
+    socket.on(SERVER_EVENTS.MESSAGE_NEW, handleMessageNew);
+    socket.on(SERVER_EVENTS.CONVERSATION_NEW, handleConversationNew);
     return () => {
       socket.off('connect', handleConnect);
-      socket.off(EVENTS.MESSAGE_NEW, handleMessageNew);
-      socket.off(EVENTS.CONVERSATION_NEW, handleConversationNew);
+      socket.off(SERVER_EVENTS.MESSAGE_NEW, handleMessageNew);
+      socket.off(SERVER_EVENTS.CONVERSATION_NEW, handleConversationNew);
     };
   }, [socket, currentUserId, queryClient]);
 };

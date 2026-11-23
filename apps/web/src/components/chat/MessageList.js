@@ -6,6 +6,8 @@ import { useConversationDisplay } from '@/hooks/useConversationDisplay';
 import { useAuth } from '@/providers/AuthProvider';
 import { Button } from '@/components/ui/Button';
 import { MessageBubble } from './MessageBubble';
+import { MessageListSkeleton } from './MessageListSkeleton';
+import { InlineError } from './InlineError';
 
 const GROUPING_WINDOW_MS = 5 * 60 * 1000;
 
@@ -32,7 +34,9 @@ function DaySeparator({ date }) {
 export function MessageList({ conversation, onRetry }) {
   const { user } = useAuth();
   const { title } = useConversationDisplay(conversation);
-  const { messages, isPending, isError, hasOlder, isLoadingOlder, loadOlder } = useMessages(conversation.id);
+  const { messages, isPending, isError, retry, hasOlder, isLoadingOlder, isLoadOlderError, loadOlder } = useMessages(
+    conversation.id,
+  );
   const { containerRef, handleScroll, anchorBeforeLoadingOlder } = useChatScroll({
     firstMessageId: messages[0]?.id,
     lastMessageId: messages.at(-1)?.id,
@@ -59,11 +63,11 @@ export function MessageList({ conversation, onRetry }) {
           </Button>
         </div>
       )}
-      {isPending && <p className="py-6 text-center text-sm text-slate-500">Loading messages…</p>}
-      {isError && (
-        <p role="alert" className="py-6 text-center text-sm text-red-600">
-          Couldn&apos;t load messages.
-        </p>
+      {isLoadOlderError && <InlineError message="Couldn't load older messages." />}
+      {isPending && <MessageListSkeleton />}
+      {isError && <InlineError message="Couldn't load messages." onRetry={retry} />}
+      {!isPending && !isError && messages.length === 0 && (
+        <p className="py-10 text-center text-sm text-slate-500">No messages yet. Say hello 👋</p>
       )}
       <ol aria-live="polite" aria-label={`Messages in ${title}`}>
         {messages.map((message, index) => {
